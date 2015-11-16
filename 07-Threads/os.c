@@ -3,11 +3,16 @@
 #include "reg.h"
 #include "threads.h"
 
+#define MAX_Input 50
+
 /* USART TXE Flag
  * This flag is cleared when data is written to USARTx_DR and
  * set when that data is transferred to the TDR
  */
 #define USART_FLAG_TXE	((uint16_t) 0x0080)
+
+/* USART RXNE Flag, when RXNE is set, data can be read */
+#define USART_FLAG_RXNE ((uint16_t) 0x0020)
 
 void usart_init(void)
 {
@@ -34,6 +39,30 @@ void print_str(const char *str)
 		*(USART2_DR) = (*str & 0xFF);
 		str++;
 	}
+}
+
+void print_char(const char *str)
+{
+	if (*str) {
+		while (!(*(USART2_SR) & USART_FLAG_TXE));
+		*(USART2_DR) = (*str & 0xFF);
+	}
+}
+
+char recv_char(void)
+{
+	while (1) {
+		if ((*USART2_SR) & (USART_FLAG_RXNE)) {
+			return (*USART2_DR) & 0xff;
+		}
+	}
+}
+
+void clear_buffer(char *buffer, size_t index)
+{
+	int i;
+	for(i=index;i>=0;i--)
+		buffer[i]='\0';
 }
 
 static void delay(volatile int count)
@@ -66,6 +95,35 @@ void test3(void *userdata)
 	busy_loop(userdata);
 }
 
+void shell(void *userdata)
+{
+	char buffer[MAX_Input];
+	size_t index;
+
+	while(1) {
+		print_str("kuroshell:~$ ");
+		index=0;
+		while(1) {
+			buffer[index] = recv_char();
+
+			/*Detect "Enter" hit or a new line character */
+			if (buffer[index] == 13 || buffer[index] == '\n'){
+				print_char("\n");
+				buffer[index]= '\0';
+				break;
+			}
+			else {
+				print_char(&buffer[index++]);
+			}
+
+			/*Prevent index overflow*/
+			if (index == MAX_Input)
+				index--;
+		}
+		clear_buffer(buffer, index);
+	}
+}
+
 /* 72MHz */
 #define CPU_CLOCK_HZ 72000000
 
@@ -74,10 +132,12 @@ void test3(void *userdata)
 
 int main(void)
 {
-	const char *str1 = "Task1", *str2 = "Task2", *str3 = "Task3";
+	//const char *str1 = "Task1", *str2 = "Task2", *str3 = "Task3";
 
+	const char *str1 = "Task_SHELL";
 	usart_init();
 
+	/*
 	if (thread_create(test1, (void *) str1) == -1)
 		print_str("Thread 1 creation failed\r\n");
 
@@ -86,6 +146,10 @@ int main(void)
 
 	if (thread_create(test3, (void *) str3) == -1)
 		print_str("Thread 3 creation failed\r\n");
+		*/
+
+	if (thread_create(shell, (void *) str1) == -1)
+		print_str("SHELL creation failed\r\n");
 
 	/* SysTick configuration */
 	*SYSTICK_LOAD = (CPU_CLOCK_HZ / TICK_RATE_HZ) - 1UL;
