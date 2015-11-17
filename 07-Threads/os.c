@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "reg.h"
 #include "threads.h"
+#include "malloc.h"
 
 #define MAX_Input 50
 
@@ -13,6 +14,8 @@
 
 /* USART RXNE Flag, when RXNE is set, data can be read */
 #define USART_FLAG_RXNE ((uint16_t) 0x0020)
+
+extern int fibonacci(int x);
 
 void usart_init(void)
 {
@@ -36,7 +39,7 @@ void print_str(const char *str)
 {
 	while (*str) {
 		while (!(*(USART2_SR) & USART_FLAG_TXE));
-		*(USART2_DR) = (*str & 0xFF);
+		 *(USART2_DR) = (*str & 0xFF);
 		str++;
 	}
 }
@@ -65,34 +68,68 @@ void clear_buffer(char *buffer, size_t index)
 		buffer[i]='\0';
 }
 
-static void delay(volatile int count)
-{
-	count *= 50000;
-	while (count--);
-}
 
-static void busy_loop(void *str)
+void reverse(char *str)
 {
-	while (1) {
-		print_str(str);
-		print_str(": Running...\n");
-		delay(1000);
+	int i, length;
+	char c;
+	char *s = str;
+	
+	length = 0;
+	while (*s++) 
+		length++;
+	for (i = 0; i < length; i++, length--) {
+		c = str[i];
+		str[i] = str[length-1];
+		str[length-1] = c;
 	}
 }
 
-void test1(void *userdata)
+void itoa(int n, char *str)
 {
-	busy_loop(userdata);
+	int i, sign;
+	if ((sign = n) < 0)
+		n = -n;
+	i = 0;
+	do {
+		str[i++] = n % 10 + '0';
+	} while((n /= 10) > 0);
+	if (sign < 0)
+		str[i++] = '-';
+	str[i] = '\0';
+	reverse(str);
 }
 
-void test2(void *userdata)
+void fibonaccishell(int number)
 {
-	busy_loop(userdata);
+	 char *str = malloc(20);
+	 int result = fibonacci(number);
+	 itoa(result,str);
+	 print_str(str);
+	 free(str);
 }
 
-void test3(void *userdata)
+int strcmp(const char *str1, const char *str2)
 {
-	busy_loop(userdata);
+	while(1){
+		if (*str1 == '\0' || *str2 == '\0'){
+			if (*str1 == *str2) return 1;
+			return 0;
+		}
+		else if(*str1++ != *str2++) break;
+	}
+	return 0;
+}
+
+void command_detect(char *str, size_t index)
+{
+	if (strcmp("fib", str)){
+		print_str("Fibonacci is excuted ...\n");
+		if (thread_create((void*)(fibonaccishell), (void *)(15)) == -1)
+			print_str("Fibonacci creation failed\r\n");
+		else
+			print_str("Fibonacci creation successfully\r\n");
+	}
 }
 
 void shell(void *userdata)
@@ -110,7 +147,19 @@ void shell(void *userdata)
 			if (buffer[index] == 13 || buffer[index] == '\n'){
 				print_char("\n");
 				buffer[index]= '\0';
+				/*if command exists*/
+				command_detect(buffer, index);
 				break;
+			}
+			/*Detect "Backspace"*/
+			else if(buffer[index] == 8 || buffer[index] ==127){
+				if(index != 0){
+					print_char("\b");
+					print_char(" ");
+					print_char("\b");
+					/*if reach end*/
+					buffer[index--] = '\0';
+				}
 			}
 			else {
 				print_char(&buffer[index++]);
@@ -132,21 +181,8 @@ void shell(void *userdata)
 
 int main(void)
 {
-	//const char *str1 = "Task1", *str2 = "Task2", *str3 = "Task3";
-
 	const char *str1 = "Task_SHELL";
 	usart_init();
-
-	/*
-	if (thread_create(test1, (void *) str1) == -1)
-		print_str("Thread 1 creation failed\r\n");
-
-	if (thread_create(test2, (void *) str2) == -1)
-		print_str("Thread 2 creation failed\r\n");
-
-	if (thread_create(test3, (void *) str3) == -1)
-		print_str("Thread 3 creation failed\r\n");
-		*/
 
 	if (thread_create(shell, (void *) str1) == -1)
 		print_str("SHELL creation failed\r\n");
